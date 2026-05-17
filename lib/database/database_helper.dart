@@ -19,9 +19,9 @@ class DatabaseHelper {
   Future<Database> _initDatabase() async {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, 'account_book.db');
-    return await openDatabase(
+    final db = await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE records (
@@ -34,6 +34,7 @@ class DatabaseHelper {
             note TEXT DEFAULT ''
           )
         ''');
+        await _createIndexes(db);
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -41,7 +42,26 @@ class DatabaseHelper {
             'ALTER TABLE records ADD COLUMN time TEXT DEFAULT ""',
           );
         }
+        if (oldVersion < 3) {
+          await _createIndexes(db);
+        }
       },
+    );
+    // PRAGMAs must run outside onCreate/onUpgrade (they're in a transaction)
+    await db.rawQuery("PRAGMA journal_mode=WAL");
+    await db.rawQuery("PRAGMA synchronous=NORMAL");
+    return db;
+  }
+
+  Future<void> _createIndexes(Database db) async {
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_records_date ON records(date)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_records_type ON records(type)',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_records_date_type ON records(date, type)',
     );
   }
 
@@ -174,11 +194,93 @@ class DatabaseHelper {
     return info;
   }
 
-  /// Compact database: checkpoint + VACUUM.
+  /// Compact database: checkpoint + incremental vacuum.
   Future<void> compactDatabase() async {
     final db = await database;
     await db.rawQuery("PRAGMA wal_checkpoint(TRUNCATE)");
-    await db.execute('VACUUM');
+    // Reclaim free pages without rewriting the entire file
+    final count = await db.rawQuery("PRAGMA freelist_count");
+    if (count.isNotEmpty && count.first.values.first is int) {
+      final pages = count.first.values.first as int;
+      if (pages > 0) {
+        await db.rawQuery("PRAGMA incremental_vacuum($pages)");
+      }
+    }
+  }
+
+  /// Parse and import records from CSV content (exported by [exportCsv]).
+  /// Returns the number of records imported.
+  /// Throws on parse error with a description.
+  Future<int> importFromCsv(String csv) async {
+    final lines = csv.split('\n').where((l) => l.trim().isNotEmpty).toList();
+    if (lines.length < 2) throw Exception('CSV 文件为空或格式不正确');
+
+    // Parse CSV line respecting quoted fields
+    List<String> parseLine(String line) {
+      final result = <String>[];
+      var current = StringBuffer();
+      var inQuotes = false;
+      for (var i = 0; i < line.length; i++) {
+        final ch = line[i];
+        if (ch == '"') {
+          if (inQuotes && i + 1 < line.length && line[i + 1] == '"') {
+            current.write('"');
+            i++;
+          } else {
+            inQuotes = !inQuotes;
+          }
+        } else if (ch == ',' && !inQuotes) {
+          result.add(current.toString().trim());
+          current = StringBuffer();
+        } else {
+          current.write(ch);
+        }
+      }
+      result.add(current.toString().trim());
+      return result;
+    }
+
+    // Map Chinese/English type strings to internal type
+    String parseType(String raw) {
+      if (raw == '支出' || raw == 'Expense' || raw == 'expense') return 'expense';
+      if (raw == '收入' || raw == 'Income' || raw == 'income') return 'income';
+      throw Exception('无法识别的类型: $raw');
+    }
+
+    final db = await database;
+    var count = 0;
+
+    // Start from line 1 (skip header)
+    for (var i = 1; i < lines.length; i++) {
+      final cols = parseLine(lines[i]);
+      if (cols.length < 4) continue;
+
+      final record = Record(
+        amount: double.tryParse(cols[3]) ?? 0,
+        type: parseType(cols[1]),
+        category: cols[2],
+        date: cols[0],
+        time: cols.length > 4 ? cols[4] : '',
+        note: cols.length > 5 ? cols[5] : '',
+      );
+      await db.insert('records', record.toMap()..remove('id'));
+      count++;
+    }
+    // Clean up any exact duplicates that may exist
+    await removeDuplicates();
+    return count;
+  }
+
+  /// Remove exact duplicate records (same type, category, amount, date, time, note),
+  /// keeping only the row with the lowest id.
+  Future<int> removeDuplicates() async {
+    final db = await database;
+    final result = await db.rawDelete('''
+      DELETE FROM records WHERE id NOT IN (
+        SELECT MIN(id) FROM records GROUP BY type, category, amount, date, time, note
+      )
+    ''');
+    return result;
   }
 
   /// Delete all records from the database.

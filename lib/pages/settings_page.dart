@@ -1,8 +1,11 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:provider/provider.dart';
 import '../database/database_helper.dart';
 import '../models/app_themes.dart';
-import '../main.dart';
+import '../providers/app_settings_provider.dart';
 import '../utils/file_helper.dart';
 import '../utils/strings.dart';
 import '../widgets/bounce_tap.dart';
@@ -22,8 +25,7 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final app = AccountBookApp.of(context);
-    if (app == null) return const SizedBox.shrink();
+    final app = context.read<AppSettingsProvider>();
 
     return Scaffold(
       appBar: AppBar(title: Text(S.t(context, 'settings'))),
@@ -41,6 +43,8 @@ class _SettingsPageState extends State<SettingsPage> {
           _section(S.t(context, 'data_management')),
           _card([
             _exportTile(theme, app),
+            _importTile(theme),
+            _dedupTile(theme),
             _clearTile(theme),
           ]),
           const SizedBox(height: 20),
@@ -152,7 +156,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   // ── 数据管理 ──
 
-  Widget _exportTile(ThemeData theme, AccountBookAppState app) {
+  Widget _exportTile(ThemeData theme, AppSettingsProvider app) {
     final tile = ListTile(
       leading: _leading(Icons.file_download_outlined, theme.colorScheme.primary),
       title: Text(S.t(context, 'export_csv'), style: const TextStyle(fontSize: 15)),
@@ -170,9 +174,50 @@ class _SettingsPageState extends State<SettingsPage> {
         : BounceTap(onTap: _exportCsv, child: tile);
   }
 
+  Widget _importTile(ThemeData theme) {
+    return BounceTap(
+      onTap: _importCsv,
+      child: ListTile(
+        leading: _leading(Icons.file_upload_outlined, theme.colorScheme.primary),
+        title: Text(S.t(context, 'import_csv'), style: const TextStyle(fontSize: 15)),
+        subtitle: Text(S.t(context, 'import_csv_hint'),
+            style: TextStyle(fontSize: 12, color: Colors.grey[400])),
+        trailing: Icon(Icons.chevron_right, color: Colors.grey[400]),
+      ),
+    );
+  }
+
+  Widget _dedupTile(ThemeData theme) {
+    return BounceTap(
+      onTap: _dedupData,
+      child: ListTile(
+        leading: _leading(Icons.filter_alt_outlined, Colors.orange),
+        title: Text(S.t(context, 'dedup_data'), style: const TextStyle(fontSize: 15)),
+        subtitle: Text(S.t(context, 'dedup_data_hint'),
+            style: TextStyle(fontSize: 12, color: Colors.grey[400])),
+        trailing: Icon(Icons.chevron_right, color: Colors.grey[400]),
+      ),
+    );
+  }
+
+  Future<void> _dedupData() async {
+    final removed = await _db.removeDuplicates();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          removed > 0
+              ? S.t(context, 'dedup_success').replaceAll('%d', removed.toString())
+              : S.t(context, 'dedup_none'),
+        ),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   Future<void> _exportCsv() async {
-    final app = AccountBookApp.of(context);
-    final lang = app?.language ?? 'zh';
+    final app = context.read<AppSettingsProvider>();
+    final lang = app.language;
 
     final result = await showDialog<_ExportRange>(
       context: context,
@@ -249,6 +294,103 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _importCsv() async {
+    // Confirm before importing
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(S.t(ctx, 'import_csv')),
+        content: Text(S.t(ctx, 'import_confirm_body')),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(S.t(ctx, 'cancel')),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(S.t(ctx, 'ok')),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    try {
+      final result = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['csv'],
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+
+      final file = result.files.first;
+      final bytes = file.bytes;
+      if (bytes == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('${S.t(context, 'import_failed')}: 无法读取文件'),
+                behavior: SnackBarBehavior.floating),
+          );
+        }
+        return;
+      }
+
+      final csv = utf8.decode(bytes);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(S.t(context, 'importing')),
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 10),
+          ),
+        );
+      }
+
+      final count = await _db.importFromCsv(csv);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).clearSnackBars();
+        await showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Text(S.t(ctx, 'import_csv')),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 48, height: 48,
+                  decoration: const BoxDecoration(
+                    color: Colors.green,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.check, color: Colors.white, size: 28),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  S.t(context, 'import_success').replaceAll('%d', count.toString()),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text(S.t(ctx, 'ok')),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${S.t(context, 'import_failed')}: $e'),
+              behavior: SnackBarBehavior.floating),
+        );
+      }
+    }
+  }
+
   Widget _clearTile(ThemeData theme) {
     return BounceTap(
       onTap: _confirmClear,
@@ -293,7 +435,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   // ── 主题与外观 ──
 
-  Widget _darkModeTile(ThemeData theme, AccountBookAppState app) {
+  Widget _darkModeTile(ThemeData theme, AppSettingsProvider app) {
     final isDark = app.themeMode == ThemeMode.dark;
     return ListTile(
       leading: _leading(
@@ -310,7 +452,7 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Widget _themeTile(ThemeData theme, AccountBookAppState app) {
+  Widget _themeTile(ThemeData theme, AppSettingsProvider app) {
     return BounceTap(
       onTap: () => _showThemePicker(app),
       child: ListTile(
@@ -336,7 +478,7 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  void _showThemePicker(AccountBookAppState app) {
+  void _showThemePicker(AppSettingsProvider app) {
     showDialog(
       context: context,
       builder: (ctx) => _ThemePickerContent(app: app),
@@ -345,7 +487,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
   // ── 基础偏好 ──
 
-  Widget _dateFormatTile(AccountBookAppState app, ThemeData theme) {
+  Widget _dateFormatTile(AppSettingsProvider app, ThemeData theme) {
     const formats = ['yyyy-MM-dd', 'MM/dd/yyyy', 'dd/MM/yyyy'];
     return ListTile(
       leading: _leading(Icons.date_range, theme.colorScheme.primary),
@@ -366,7 +508,7 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Widget _currencyTile(AccountBookAppState app, ThemeData theme) {
+  Widget _currencyTile(AppSettingsProvider app, ThemeData theme) {
     return StatefulBuilder(
       builder: (context, localSetState) {
         return ListTile(
@@ -387,7 +529,7 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Widget _languageTile(AccountBookAppState app, ThemeData theme) {
+  Widget _languageTile(AppSettingsProvider app, ThemeData theme) {
     return ListTile(
       leading: _leading(Icons.language, theme.colorScheme.primary),
       title: Text(S.t(context, 'language'), style: const TextStyle(fontSize: 15)),
@@ -409,7 +551,17 @@ class _SettingsPageState extends State<SettingsPage> {
       child: BounceTap(
         onTap: () {
           Navigator.push(context,
-              MaterialPageRoute(builder: (_) => const AboutPage()));
+              PageRouteBuilder(
+                transitionDuration: const Duration(milliseconds: 300),
+                pageBuilder: (ctx, a1, a2) => const AboutPage(),
+                transitionsBuilder: (ctx, anim, a2, child) => SlideTransition(
+                  position: Tween<Offset>(
+                    begin: const Offset(0.0, 0.08),
+                    end: Offset.zero,
+                  ).animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic)),
+                  child: FadeTransition(opacity: anim, child: child),
+                ),
+              ));
         },
         child: ListTile(
           leading: _leading(Icons.info_outline, theme.colorScheme.primary),
@@ -444,7 +596,7 @@ class _DateRangeDialogState extends State<_DateRangeDialog> {
   @override
   void initState() {
     super.initState();
-    _fmt = AccountBookApp.of(context)?.dateFormat ?? 'yyyy-MM-dd';
+    _fmt = context.read<AppSettingsProvider>().dateFormat;
   }
 
   Future<void> _pickDate(bool isStart) async {
@@ -565,7 +717,7 @@ class _DateRangeDialogState extends State<_DateRangeDialog> {
 
 /// Animated theme color picker dialog — pulses selected item, then exits with scale+fade.
 class _ThemePickerContent extends StatefulWidget {
-  final AccountBookAppState app;
+  final AppSettingsProvider app;
   const _ThemePickerContent({required this.app});
 
   @override
@@ -637,14 +789,17 @@ class _ThemePickerContentState extends State<_ThemePickerContent>
         title: Text(S.t(context, 'pick_theme_color')),
         content: SizedBox(
           width: double.maxFinite,
-          child: GridView.builder(
-            shrinkWrap: true,
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-            ),
-            itemCount: appThemes.length,
+          child: SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            child: GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+              ),
+              itemCount: appThemes.length,
             itemBuilder: (ctx, i) {
               final t = appThemes[i];
               final sel = i == widget.app.themeIndex;
@@ -683,6 +838,7 @@ class _ThemePickerContentState extends State<_ThemePickerContent>
                 ),
               );
             },
+          ),
           ),
         ),
       ),

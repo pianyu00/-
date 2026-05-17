@@ -1,8 +1,9 @@
-import '../main.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../providers/app_settings_provider.dart';
 
 /// Simple key-based translation helper.
-/// Language is read from [AccountBookAppState.language].
+/// Language is read from [AppSettingsProvider.language].
 class S {
   static final Map<String, String> _zh = {
     'settings': '设置',
@@ -13,6 +14,12 @@ class S {
     'exporting': '导出中…',
     'export_success': '已导出到',
     'export_failed': '导出失败',
+    'import_csv': '导入 CSV',
+    'import_csv_hint': '从 CSV 文件恢复账单',
+    'importing': '导入中…',
+    'import_success': '成功导入 %d 条记录',
+    'import_failed': '导入失败',
+    'import_confirm_body': '导入将添加记录到现有数据中，不会覆盖已有记录。\n确定继续？',
     'export_select_range': '选择导出范围',
     'export_all': '导出全部',
     'export_range': '导出范围',
@@ -21,6 +28,10 @@ class S {
     'this_year': '今年',
     'start_date': '开始日期',
     'end_date': '结束日期',
+    'dedup_data': '去重',
+    'dedup_data_hint': '删除完全重复的账单记录',
+    'dedup_success': '已删除 %d 条重复记录',
+    'dedup_none': '没有重复记录',
     'clear_data': '清空数据',
     'clear_data_hint': '删除所有账单记录，不可恢复',
     'clear_confirm_title': '确认清空',
@@ -39,7 +50,7 @@ class S {
     'date_format': '日期格式',
     'currency_unit': '货币单位',
     'language': '语言',
-    'version': 'v1.0.1',
+    'version': 'v2.0.0',
     'developer': '开发者',
     'feedback_email': '反馈邮箱',
     'tech_stack': '技术栈',
@@ -117,6 +128,12 @@ class S {
     'exporting': 'Exporting…',
     'export_success': 'Saved to',
     'export_failed': 'Export failed',
+    'import_csv': 'Import CSV',
+    'import_csv_hint': 'Restore records from CSV file',
+    'importing': 'Importing…',
+    'import_success': 'Imported %d records',
+    'import_failed': 'Import failed',
+    'import_confirm_body': 'Import will add records to existing data without overwriting.\nContinue?',
     'export_select_range': 'Select Date Range',
     'export_all': 'Export All',
     'export_range': 'Export Range',
@@ -125,6 +142,10 @@ class S {
     'this_year': 'This Year',
     'start_date': 'Start Date',
     'end_date': 'End Date',
+    'dedup_data': 'Deduplicate',
+    'dedup_data_hint': 'Remove exact duplicate records',
+    'dedup_success': 'Removed %d duplicate records',
+    'dedup_none': 'No duplicate records found',
     'clear_data': 'Clear All Data',
     'clear_data_hint': 'Delete all records, cannot be undone',
     'clear_confirm_title': 'Confirm Clear',
@@ -143,7 +164,7 @@ class S {
     'date_format': 'Date Format',
     'currency_unit': 'Currency',
     'language': 'Language',
-    'version': 'v1.0.1',
+    'version': 'v2.0.0',
     'developer': 'Developer',
     'feedback_email': 'Feedback',
     'tech_stack': 'Tech Stack',
@@ -214,7 +235,7 @@ class S {
 
   /// Get translated string for the current app language.
   static String t(BuildContext context, String key) {
-    final lang = AccountBookApp.of(context)?.language ?? 'zh';
+    final lang = context.read<AppSettingsProvider>().language;
     return _get(lang, key);
   }
 

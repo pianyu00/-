@@ -3,14 +3,7 @@ import '../utils/strings.dart';
 import 'home_page.dart';
 
 class SplashPage extends StatefulWidget {
-  final void Function(int) onThemeChanged;
-  final int currentThemeIndex;
-
-  const SplashPage({
-    super.key,
-    required this.onThemeChanged,
-    required this.currentThemeIndex,
-  });
+  const SplashPage({super.key});
 
   @override
   State<SplashPage> createState() => _SplashPageState();
@@ -30,23 +23,23 @@ class _SplashPageState extends State<SplashPage>
       duration: const Duration(milliseconds: 800),
     );
 
-    _scaleAnim = Tween<double>(begin: 0.4, end: 1.0).animate(
+    _scaleAnim = Tween<double>(begin: 0.6, end: 1.0).animate(
       CurvedAnimation(
         parent: _controller,
-        curve: const Interval(0, 0.7, curve: Curves.easeOutBack),
+        curve: const Interval(0.0, 0.6, curve: Curves.easeOutCubic),
       ),
     );
 
     _fadeAnim = Tween<double>(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(
         parent: _controller,
-        curve: const Interval(0, 0.8, curve: Curves.easeIn),
+        curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
       ),
     );
 
     _controller.forward();
 
-    Future.delayed(const Duration(milliseconds: 1100), _goHome);
+    Future.delayed(const Duration(milliseconds: 900), _goHome);
   }
 
   void _goHome() {
@@ -55,10 +48,7 @@ class _SplashPageState extends State<SplashPage>
       context,
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 250),
-        pageBuilder: (ctx, a1, a2) => HomePage(
-          onThemeChanged: widget.onThemeChanged,
-          currentThemeIndex: widget.currentThemeIndex,
-        ),
+        pageBuilder: (ctx, a1, a2) => const HomePage(),
         transitionsBuilder: (ctx, anim, a2, child) =>
             FadeTransition(opacity: anim, child: child),
       ),
@@ -96,6 +86,7 @@ class _SplashPageState extends State<SplashPage>
           ),
         ),
         child: Center(
+          child: RepaintBoundary(
           child: FadeTransition(
             opacity: _fadeAnim,
             child: ScaleTransition(
@@ -148,6 +139,7 @@ class _SplashPageState extends State<SplashPage>
           ),
         ),
       ),
+    ),
     );
   }
 }

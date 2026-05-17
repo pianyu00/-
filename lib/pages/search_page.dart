@@ -1,10 +1,11 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import '../database/database_helper.dart';
-import '../main.dart';
 import '../models/record.dart';
 import '../models/categories.dart';
+import '../providers/app_settings_provider.dart';
 import '../utils/strings.dart';
 import 'add_record_page.dart';
 
@@ -23,9 +24,9 @@ class _SearchPageState extends State<SearchPage> {
   List<Record> _results = [];
   bool _searching = false;
 
-  String get _cs => AccountBookApp.of(context)?.currencySymbol ?? '¥';
+  String get _cs => context.read<AppSettingsProvider>().currencySymbol;
   String _d(String dateStr) {
-    final fmt = AccountBookApp.of(context)?.dateFormat ?? 'yyyy-MM-dd';
+    final fmt = context.read<AppSettingsProvider>().dateFormat;
     if (fmt == 'yyyy-MM-dd') return dateStr;
     try {
       return DateFormat(fmt).format(DateTime.parse(dateStr));
@@ -42,9 +43,9 @@ class _SearchPageState extends State<SearchPage> {
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _searchController.dispose();
     _focusNode.dispose();
-    _debounce?.cancel();
     super.dispose();
   }
 
@@ -89,6 +90,9 @@ class _SearchPageState extends State<SearchPage> {
               hintText: S.t(context, 'search_hint'),
               hintStyle: TextStyle(fontSize: 14, color: Colors.grey[400]),
               border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              filled: false,
               isDense: true,
               contentPadding: const EdgeInsets.symmetric(vertical: 8),
             ),

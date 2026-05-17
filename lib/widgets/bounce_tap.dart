@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// Spring bounce tap wrapper — scales down 10% on press with elastic bounce.
 class BounceTap extends StatefulWidget {
@@ -40,7 +41,10 @@ class _BounceTapState extends State<BounceTap>
       onTapDown: _down,
       onTapUp: _up,
       onTapCancel: _cancel,
-      onTap: widget.onTap,
+      onTap: () {
+        HapticFeedback.lightImpact();
+        widget.onTap?.call();
+      },
       child: AnimatedBuilder(
         animation: _a,
         builder: (ctx, child) =>

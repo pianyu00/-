@@ -13,6 +13,7 @@ pluginManagement {
         maven("https://maven.aliyun.com/repository/public")
         maven("https://maven.aliyun.com/repository/google")
         maven("https://maven.aliyun.com/repository/gradle-plugin")
+        maven("https://storage.flutter-io.cn")
         google()
         mavenCentral()
         gradlePluginPortal()
